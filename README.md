@@ -11,7 +11,7 @@
 
 注意：
 
-Windows 需要支持 Docker Desktop 并开启 WSL 2 后端。
+- Windows 需要支持 Docker Desktop 并开启 WSL 2 后端。
 
 ## 目录结构
 
@@ -34,9 +34,9 @@ git clone https://github.com/SealDice/sealdice-core.git
 
 注意:
 
-- sealdice-core 项目编译依赖 sealdice-ui 项目的 pre-release 的产物，因此需要自行按 sealdice-core 项目首页的说明放好 static 目录下的对应前端文件，本项目默认假设 sealdice-ui 项目的 pre-release 产物已经按要求放在了 sealdice-core 项目的 static 目录下。
+- `sealdice-core` 项目编译依赖 `sealdice-ui` 项目的 `pre-release` 的产物，因此需要自行按 `sealdice-core` 项目首页的说明放好 `static` 目录下的对应前端文件，本项目默认假设 `sealdice-ui` 项目的 `pre-release` 产物已经按要求放在了 `sealdice-core` 项目的 `static` 目录下。
 
-- sealdice-core 项目的代码应当放在本项目的根目录下，即 `sealdice-build-localdocker/sealdice-core`。
+- `sealdice-core` 项目的代码应当放在本项目的根目录下，即 `sealdice-build-localdocker/sealdice-core`。
 
 1. 复制环境模板：
 
