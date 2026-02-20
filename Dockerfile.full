@@ -1,0 +1,49 @@
+ARG GO_IMAGE=golang:1.25-bookworm
+ARG RUNTIME_FULL_IMAGE=debian:12-slim
+ARG GOPROXY=https://goproxy.cn,direct
+ARG APT_MIRROR=mirrors.tuna.tsinghua.edu.cn
+
+FROM ${GO_IMAGE} AS builder
+
+WORKDIR /src/sealdice-core
+
+ARG GOPROXY
+ENV GOPROXY=${GOPROXY}
+
+COPY sealdice-core/go.mod sealdice-core/go.sum ./
+RUN go mod download
+
+COPY sealdice-core ./
+
+ARG VERSION=docker
+ARG TARGETARCH=amd64
+ENV CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH}
+RUN go build -trimpath \
+    -ldflags "-s -w -X sealdice-core/dice.VERSION_PRERELEASE=-docker-full -X sealdice-core/dice.VERSION_BUILD_METADATA=+${VERSION}" \
+    -o /out/sealdice-core .
+
+FROM ${RUNTIME_FULL_IMAGE}
+
+ARG APT_MIRROR
+RUN sed -i "s|deb.debian.org|${APT_MIRROR}|g; s|security.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list.d/debian.sources \
+    && apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      tzdata \
+      libicu72 \
+      libstdc++6 \
+    && ln -fs /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+    && dpkg-reconfigure -f noninteractive tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV TZ=Asia/Shanghai
+
+WORKDIR /
+VOLUME ["/data", "/backups", "/lagrange"]
+
+COPY --from=builder /out/sealdice-core /usr/local/bin/sealdice-core
+COPY --chmod=0755 docker/entrypoint.full.sh /entrypoint.sh
+COPY sealdice-core/data /opt/sealdice/buildin-data
+COPY sealdice-core/lagrange /opt/sealdice/lagrange
+
+EXPOSE 3211
+ENTRYPOINT ["/entrypoint.sh"]

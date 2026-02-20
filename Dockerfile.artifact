@@ -1,0 +1,73 @@
+ARG GO_IMAGE=golang:1.25-bookworm
+ARG APT_MIRROR=mirrors.tuna.tsinghua.edu.cn
+ARG ANDROID_NDK_VERSION=r25c
+ARG GITHUB_PROXY=
+
+FROM ${GO_IMAGE}
+
+ARG APT_MIRROR
+ARG ANDROID_NDK_VERSION
+ARG GITHUB_PROXY
+ENV LANG=C.UTF-8
+ENV LC_ALL=C.UTF-8
+RUN sed -i "s|deb.debian.org|${APT_MIRROR}|g; s|security.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list.d/debian.sources \
+    && apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates \
+      curl \
+      git \
+      openjdk-17-jdk \
+      patch \
+      wget \
+      unzip \
+      zip \
+      xz-utils \
+      musl-tools \
+      mingw-w64 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt
+RUN TOOLCHAIN_URL="https://github.com/sealdice/tooolchain/releases/download/1/aarch64-linux-musl-cross.tgz" \
+    && if [ -n "${GITHUB_PROXY}" ]; then TOOLCHAIN_URL="${GITHUB_PROXY}${TOOLCHAIN_URL}"; fi \
+    && wget -q "${TOOLCHAIN_URL}" -O aarch64-linux-musl-cross.tgz \
+    && tar zxf aarch64-linux-musl-cross.tgz \
+    && rm -f aarch64-linux-musl-cross.tgz
+RUN wget -q "https://dl.google.com/android/repository/android-ndk-${ANDROID_NDK_VERSION}-linux.zip" \
+    && unzip -q "android-ndk-${ANDROID_NDK_VERSION}-linux.zip" \
+    && rm -f "android-ndk-${ANDROID_NDK_VERSION}-linux.zip"
+RUN mkdir -p /opt/android-sdk/cmdline-tools \
+    && wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O /tmp/cmdline-tools.zip \
+    && unzip -q /tmp/cmdline-tools.zip -d /opt/android-sdk/cmdline-tools \
+    && rm -f /tmp/cmdline-tools.zip \
+    && mv /opt/android-sdk/cmdline-tools/cmdline-tools /opt/android-sdk/cmdline-tools/latest
+ENV ANDROID_SDK_ROOT=/opt/android-sdk
+ENV PATH=/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+RUN yes | sdkmanager --licenses >/dev/null \
+    && sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
+WORKDIR /src/sealdice-core
+COPY sealdice-core/go.mod sealdice-core/go.sum ./
+RUN go mod download
+COPY sealdice-core ./
+COPY sealdice-build/.github/patch_go/unified-1-25-patch.diff /src/sealdice-build/.github/patch_go/unified-1-25-patch.diff
+COPY docker/build-artifacts.sh /usr/local/bin/build-artifacts.sh
+RUN chmod +x /usr/local/bin/build-artifacts.sh
+
+ARG GOPROXY=https://goproxy.cn,direct
+ENV GOPROXY=${GOPROXY}
+ENV ARTIFACT_TARGETS="linux/amd64 linux/arm64 windows/amd64 osx/amd64 osx/arm64 android/arm64"
+ENV ARTIFACT_VERSION=local
+ENV ARTIFACT_VERSION_PRERELEASE=-docker-artifact
+ENV ARTIFACT_APP_CHANNEL=dev
+ENV ARTIFACT_NT_SIGN_URL=
+ENV ARTIFACT_SEAL_TRUSTED_PRIVATE_KEY=
+ENV ARTIFACT_CGO_FLAGS="-Werror=unused-variable -Werror=implicit-function-declaration -O2"
+ENV ARTIFACT_ENABLE_UPX=0
+ENV ARTIFACT_GO_WIN_PATCH=/src/sealdice-build/.github/patch_go/unified-1-25-patch.diff
+ENV ANDROID_NDK=/opt/android-ndk-${ANDROID_NDK_VERSION}
+ENV ARTIFACT_ANDROID_APK_ENABLE=0
+ENV ARTIFACT_ANDROID_REPO=https://github.com/sealdice/sealdice-android
+ENV ARTIFACT_ANDROID_REF=master
+ENV ARTIFACT_ANDROID_APP_RUNNER_URL=https://d1.sealdice.com/lagrange/app-runner-std-arm64.tar.gz
+ENV OUT_DIR=/out
+
+ENTRYPOINT ["/usr/local/bin/build-artifacts.sh"]

@@ -1,0 +1,83 @@
+services:
+  sealdice:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: local
+        GO_IMAGE: ${GO_IMAGE:-golang:1.25-bookworm}
+        RUNTIME_IMAGE: ${RUNTIME_IMAGE:-alpine:3.19.1}
+        GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
+        APK_MIRROR: ${APK_MIRROR:-mirrors.aliyun.com}
+    image: sealdice-core:local
+    container_name: sealdice-core
+    ports:
+      - "3211:3211"
+    volumes:
+      - ./sealdice-core/data:/data
+      - ./sealdice-core/backups:/backups
+    restart: unless-stopped
+
+  artifact-builder:
+    profiles:
+      - artifact
+    build:
+      context: .
+      dockerfile: Dockerfile.artifact
+      args:
+        GO_IMAGE: ${GO_IMAGE:-golang:1.25-bookworm}
+        GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
+        APT_MIRROR: ${APT_MIRROR:-mirrors.tuna.tsinghua.edu.cn}
+        ANDROID_NDK_VERSION: ${ANDROID_NDK_VERSION:-r25c}
+        GITHUB_PROXY: ${GITHUB_PROXY:-}
+    image: sealdice-core-artifact:local
+    container_name: sealdice-core-artifact
+    environment:
+      ARTIFACT_GITHUB_PROXY: ${ARTIFACT_GITHUB_PROXY:-${GITHUB_PROXY:-}}
+      ARTIFACT_TARGETS: ${ARTIFACT_TARGETS:-linux/amd64 linux/arm64 windows/amd64 osx/amd64 osx/arm64 android/arm64}
+      ARTIFACT_VERSION: ${ARTIFACT_VERSION:-local}
+      ARTIFACT_VERSION_PRERELEASE: ${ARTIFACT_VERSION_PRERELEASE:--docker-artifact}
+      ARTIFACT_APP_CHANNEL: ${ARTIFACT_APP_CHANNEL:-dev}
+      ARTIFACT_NT_SIGN_URL: ${ARTIFACT_NT_SIGN_URL:-}
+      ARTIFACT_SEAL_TRUSTED_PRIVATE_KEY: ${ARTIFACT_SEAL_TRUSTED_PRIVATE_KEY:-}
+      ARTIFACT_CGO_FLAGS: ${ARTIFACT_CGO_FLAGS:--Werror=unused-variable -Werror=implicit-function-declaration -O2}
+      ARTIFACT_ENABLE_UPX: ${ARTIFACT_ENABLE_UPX:-0}
+      ARTIFACT_BUILTINS_ENABLE: ${ARTIFACT_BUILTINS_ENABLE:-1}
+      ARTIFACT_BUILTINS_REPO: ${ARTIFACT_BUILTINS_REPO:-https://github.com/sealdice/sealdice-builtins}
+      ARTIFACT_BUILTINS_REF: ${ARTIFACT_BUILTINS_REF:-master}
+      ARTIFACT_LAGRANGE_ENABLE: ${ARTIFACT_LAGRANGE_ENABLE:-1}
+      ARTIFACT_LAGRANGE_BASE_URL: ${ARTIFACT_LAGRANGE_BASE_URL:-https://d1.sealdice.com/lagrange}
+      ARTIFACT_LAGRANGE_VERSION: ${ARTIFACT_LAGRANGE_VERSION:-0.0.6}
+      ARTIFACT_LAGRANGE_TAG: ${ARTIFACT_LAGRANGE_TAG:-8.0}
+      ARTIFACT_LAGRANGE_QUERY: ${ARTIFACT_LAGRANGE_QUERY:-v=3}
+      ARTIFACT_ANDROID_APK_ENABLE: ${ARTIFACT_ANDROID_APK_ENABLE:-0}
+      ARTIFACT_ANDROID_REPO: ${ARTIFACT_ANDROID_REPO:-https://github.com/sealdice/sealdice-android}
+      ARTIFACT_ANDROID_REF: ${ARTIFACT_ANDROID_REF:-master}
+      ARTIFACT_ANDROID_APP_RUNNER_URL: ${ARTIFACT_ANDROID_APP_RUNNER_URL:-https://d1.sealdice.com/lagrange/app-runner-std-arm64.tar.gz}
+      ARTIFACT_CLEANUP_MODE: ${ARTIFACT_CLEANUP_MODE:-pkg}
+      OUT_DIR: /out
+    volumes:
+      - ./dist:/out
+    restart: "no"
+
+  sealdice-full:
+    build:
+      context: .
+      dockerfile: Dockerfile.full
+      args:
+        VERSION: local-full
+        GO_IMAGE: ${GO_IMAGE:-golang:1.25-bookworm}
+        RUNTIME_FULL_IMAGE: ${RUNTIME_FULL_IMAGE:-debian:12-slim}
+        GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
+        APT_MIRROR: ${APT_MIRROR:-mirrors.tuna.tsinghua.edu.cn}
+    image: sealdice-core-full:local
+    container_name: sealdice-core-full
+    profiles:
+      - full
+    ports:
+      - "3212:3211"
+    volumes:
+      - ./sealdice-core/data:/data
+      - ./sealdice-core/backups:/backups
+      - ./sealdice-core/lagrange:/lagrange
+    restart: unless-stopped
