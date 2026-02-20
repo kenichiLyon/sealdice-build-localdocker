@@ -4,6 +4,9 @@
 
 参考[sealdice-build](https://github.com/SealDice/sealdice-build)项目，目标是希望通过 Docker 快速构建出测试使用的二进制产物。
 
+本项目采用 MIT 许可。
+
+
 ## 环境要求
 
 - Docker 19.03+
