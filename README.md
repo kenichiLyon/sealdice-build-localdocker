@@ -11,6 +11,7 @@
 
 - Docker 19.03+
 - Docker Compose 1.27+
+- 可用磁盘空间 >= 12 GB
 
 注意：
 
@@ -68,6 +69,49 @@ bash docker/build-and-clean.sh
 ```
 
 3. 构建结果位于 `dist/pkg`。
+
+## 构建后清理建议
+
+为避免构建容器与缓存长期占用磁盘，建议构建完成后执行清理。
+
+- 推荐：直接使用一键脚本（默认会构建后清理）
+  - `docker/build-and-clean.ps1`
+  - `docker/build-and-clean.cmd`
+  - `docker/build-and-clean.sh`
+- 若手动运行 `docker compose run`，建议带 `--rm` 参数，确保一次性容器自动删除。
+- 若需要进一步回收空间，可额外执行：
+
+```bash
+docker image rm -f sealdice-core-artifact:local
+docker builder prune -af
+```
+
+说明：如果希望保留镜像或构建缓存，可在一键脚本中使用 `--keep-image` / `--keep-builder-cache`。
+
+### 仅清理（不构建）
+
+如果你只想清理历史构建残留，可直接执行：
+
+- Windows PowerShell:
+
+```powershell
+docker image rm -f sealdice-core-artifact:local
+docker builder prune -af
+```
+
+- Windows CMD:
+
+```cmd
+docker image rm -f sealdice-core-artifact:local
+docker builder prune -af
+```
+
+- Linux / macOS:
+
+```bash
+docker image rm -f sealdice-core-artifact:local
+docker builder prune -af
+```
 
 ### （可选）构建 docker 版 sealdice-core 镜像
 
