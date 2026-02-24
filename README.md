@@ -48,7 +48,7 @@ git clone https://github.com/SealDice/sealdice-core.git
 cp .env.docker.example .env
 ```
 
-2. 使用一键脚本构建多平台产物：
+2. 使用一键脚本构建多平台产物（默认不含 Android）：
 
 - Windows PowerShell:
 
@@ -70,6 +70,22 @@ bash docker/build-and-clean.sh
 
 3. 构建结果位于 `dist/pkg`。
 
+### Android 专用构建（拆分）
+
+Android 构建（`android/arm64` + 可选 APK）已拆分为独立服务，避免常规产物构建拉取 JDK/Android SDK/NDK。
+
+- 使用 `docker-compose.yml`：
+
+```bash
+docker compose --profile artifact-android run --rm artifact-builder-android
+```
+
+- 使用 `docker-compose.artifact.yml`：
+
+```bash
+docker compose -f docker-compose.artifact.yml --profile android run --rm artifact-builder-android
+```
+
 ## 构建后清理建议
 
 为避免构建容器与缓存长期占用磁盘，建议构建完成后执行清理。
@@ -83,6 +99,7 @@ bash docker/build-and-clean.sh
 
 ```bash
 docker image rm -f sealdice-core-artifact:local
+docker image rm -f sealdice-core-artifact-android:local
 docker builder prune -af
 ```
 
@@ -96,6 +113,7 @@ docker builder prune -af
 
 ```powershell
 docker image rm -f sealdice-core-artifact:local
+docker image rm -f sealdice-core-artifact-android:local
 docker builder prune -af
 ```
 
@@ -103,6 +121,7 @@ docker builder prune -af
 
 ```cmd
 docker image rm -f sealdice-core-artifact:local
+docker image rm -f sealdice-core-artifact-android:local
 docker builder prune -af
 ```
 
@@ -110,6 +129,7 @@ docker builder prune -af
 
 ```bash
 docker image rm -f sealdice-core-artifact:local
+docker image rm -f sealdice-core-artifact-android:local
 docker builder prune -af
 ```
 
@@ -143,9 +163,15 @@ docker-compose --profile full up --build
 可在 `.env` 中设置：
 
 - `ARTIFACT_TARGETS`：目标平台列表
+- `ARTIFACT_ANDROID_TARGETS`：Android 专用服务目标列表（默认 `android/arm64`）
 - `GITHUB_PROXY`：GitHub 下载代理前缀
+- `GITHUB_PROXY_FALLBACKS`：GitHub 下载代理候选（空格分隔，失败时自动回退尝试）
+- `ARTIFACT_GITHUB_PROXY_FALLBACKS`：构建脚本内 GitHub 候选代理（影响 builtins/仓库归档下载）
 - `ARTIFACT_ANDROID_APK_ENABLE=1`：开启 APK 构建
+- `ARTIFACT_ANDROID_CORE_CGO=0`：关闭 Android NDK，使用纯 Go 方式构建 `android/arm64` core（更省空间）
 - `ARTIFACT_CLEANUP_MODE`：`none` / `pkg` / `all`
+
+说明：`Dockerfile.artifact` 会根据目标与开关按需安装交叉编译依赖；非 Android 服务默认不包含 Android 工具链。
 
 ## 命名与目录约定
 

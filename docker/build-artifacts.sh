@@ -13,6 +13,7 @@ ENABLE_UPX="${ARTIFACT_ENABLE_UPX:-0}"
 GO_WIN_PATCH="${ARTIFACT_GO_WIN_PATCH:-/src/sealdice-build/.github/patch_go/unified-1-25-patch.diff}"
 ANDROID_NDK_PATH="${ANDROID_NDK:-/opt/android-ndk-r25c}"
 GITHUB_PROXY="${ARTIFACT_GITHUB_PROXY:-}"
+GITHUB_PROXY_FALLBACKS="${ARTIFACT_GITHUB_PROXY_FALLBACKS:-https://mirror.ghproxy.com/ https://ghproxy.net/}"
 BUILTINS_ENABLE="${ARTIFACT_BUILTINS_ENABLE:-1}"
 BUILTINS_REPO="${ARTIFACT_BUILTINS_REPO:-https://github.com/sealdice/sealdice-builtins}"
 BUILTINS_REF="${ARTIFACT_BUILTINS_REF:-master}"
@@ -95,13 +96,56 @@ maybe_upx() {
   upx -9 -fq "${file}" || true
 }
 
-apply_github_proxy() {
+build_proxy_url() {
+  local proxy="$1"
+  local base_url="$2"
+  case "${proxy}" in
+    *"{url}"*)
+      echo "${proxy}" | sed "s|{url}|${base_url}|g"
+      ;;
+    *"%URL%"*)
+      echo "${proxy}" | sed "s|%URL%|${base_url}|g"
+      ;;
+    *)
+      echo "${proxy}${base_url}"
+      ;;
+  esac
+}
+
+github_candidate_urls() {
   local url="$1"
-  if [[ -n "${GITHUB_PROXY}" && "${url}" == https://github.com/* ]]; then
-    echo "${GITHUB_PROXY}${url}"
-  else
+  if [[ "${url}" != https://github.com/* ]]; then
     echo "${url}"
+    return 0
   fi
+
+  local candidates=()
+  local seen=" "
+  local candidate
+  add_unique() {
+    local item="$1"
+    if [[ -z "${item}" ]]; then
+      return 0
+    fi
+    if [[ "${seen}" == *" ${item} "* ]]; then
+      return 0
+    fi
+    seen="${seen}${item} "
+    candidates+=("${item}")
+  }
+
+  if [[ -n "${GITHUB_PROXY}" ]]; then
+    candidate="$(build_proxy_url "${GITHUB_PROXY}" "${url}")"
+    add_unique "${candidate}"
+  fi
+  local proxy
+  for proxy in ${GITHUB_PROXY_FALLBACKS}; do
+    candidate="$(build_proxy_url "${proxy}" "${url}")"
+    add_unique "${candidate}"
+  done
+  add_unique "${url}"
+
+  printf '%s\n' "${candidates[@]}"
 }
 
 lagrange_id_for_target() {
@@ -147,10 +191,8 @@ prepare_builtins_data() {
     repo_path="${repo_url#https://github.com/}"
     repo_path="${repo_path%.git}"
     archive_file="/tmp/sealdice-builtins-${BUILTINS_REF}.tar.gz"
-    local archive_urls=(
-      "$(apply_github_proxy "https://github.com/${repo_path}/archive/refs/heads/${BUILTINS_REF}.tar.gz")"
-      "https://github.com/${repo_path}/archive/refs/heads/${BUILTINS_REF}.tar.gz"
-    )
+    local archive_urls=()
+    mapfile -t archive_urls < <(github_candidate_urls "https://github.com/${repo_path}/archive/refs/heads/${BUILTINS_REF}.tar.gz")
     local try_url
     for try_url in "${archive_urls[@]}"; do
       if [[ -z "${try_url}" ]]; then
@@ -245,9 +287,10 @@ prepare_repo_from_github() {
   repo_path="${repo_url#https://github.com/}"
   repo_path="${repo_path%.git}"
   archive_file="/tmp/repo-${repo_ref}-$$.tar.gz"
-  for archive_url in \
-    "$(apply_github_proxy "https://github.com/${repo_path}/archive/refs/heads/${repo_ref}.tar.gz")" \
-    "https://github.com/${repo_path}/archive/refs/heads/${repo_ref}.tar.gz"; do
+  local archive_urls=()
+  mapfile -t archive_urls < <(github_candidate_urls "https://github.com/${repo_path}/archive/refs/heads/${repo_ref}.tar.gz")
+  local archive_url
+  for archive_url in "${archive_urls[@]}"; do
     if wget -q "${archive_url}" -O "${archive_file}"; then
       if tar -xzf "${archive_file}" -C "${dest_dir}" --strip-components=1 >/dev/null 2>&1; then
         rm -f "${archive_file}"

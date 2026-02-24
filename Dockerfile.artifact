@@ -2,58 +2,102 @@ ARG GO_IMAGE=golang:1.25-bookworm
 ARG APT_MIRROR=mirrors.tuna.tsinghua.edu.cn
 ARG ANDROID_NDK_VERSION=r25c
 ARG GITHUB_PROXY=
+ARG GITHUB_PROXY_FALLBACKS="https://mirror.ghproxy.com/ https://ghproxy.net/"
+ARG GOPROXY=https://goproxy.cn,direct
+ARG BUILD_ARTIFACT_TARGETS="linux/amd64 linux/arm64 windows/amd64 osx/amd64 osx/arm64 android/arm64"
+ARG BUILD_ANDROID_APK_ENABLE=0
+ARG BUILD_ANDROID_CORE_CGO=1
 
 FROM ${GO_IMAGE}
 
 ARG APT_MIRROR
 ARG ANDROID_NDK_VERSION
 ARG GITHUB_PROXY
+ARG GITHUB_PROXY_FALLBACKS
+ARG GOPROXY
+ARG BUILD_ARTIFACT_TARGETS
+ARG BUILD_ANDROID_APK_ENABLE
+ARG BUILD_ANDROID_CORE_CGO
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
-RUN sed -i "s|deb.debian.org|${APT_MIRROR}|g; s|security.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list.d/debian.sources \
-    && apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates \
-      curl \
-      git \
-      openjdk-17-jdk \
-      patch \
-      wget \
-      unzip \
-      zip \
-      xz-utils \
-      musl-tools \
-      mingw-w64 \
-    && rm -rf /var/lib/apt/lists/*
+ENV GOPROXY=${GOPROXY}
+RUN set -eux; \
+    TARGETS=" ${BUILD_ARTIFACT_TARGETS} "; \
+    need_target() { case "${TARGETS}" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }; \
+    PKGS="ca-certificates git patch wget unzip zip xz-utils"; \
+    if need_target "linux/amd64"; then PKGS="${PKGS} musl-tools"; fi; \
+    if need_target "windows/amd64"; then PKGS="${PKGS} mingw-w64"; fi; \
+    if [ "${BUILD_ANDROID_APK_ENABLE}" = "1" ]; then PKGS="${PKGS} openjdk-17-jdk"; fi; \
+    sed -i "s|deb.debian.org|${APT_MIRROR}|g; s|security.debian.org|${APT_MIRROR}|g" /etc/apt/sources.list.d/debian.sources; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ${PKGS}; \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt
-RUN TOOLCHAIN_URL="https://github.com/sealdice/tooolchain/releases/download/1/aarch64-linux-musl-cross.tgz" \
-    && if [ -n "${GITHUB_PROXY}" ]; then TOOLCHAIN_URL="${GITHUB_PROXY}${TOOLCHAIN_URL}"; fi \
-    && wget -q "${TOOLCHAIN_URL}" -O aarch64-linux-musl-cross.tgz \
-    && tar zxf aarch64-linux-musl-cross.tgz \
-    && rm -f aarch64-linux-musl-cross.tgz
-RUN wget -q "https://dl.google.com/android/repository/android-ndk-${ANDROID_NDK_VERSION}-linux.zip" \
-    && unzip -q "android-ndk-${ANDROID_NDK_VERSION}-linux.zip" \
-    && rm -f "android-ndk-${ANDROID_NDK_VERSION}-linux.zip"
-RUN mkdir -p /opt/android-sdk/cmdline-tools \
-    && wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O /tmp/cmdline-tools.zip \
-    && unzip -q /tmp/cmdline-tools.zip -d /opt/android-sdk/cmdline-tools \
-    && rm -f /tmp/cmdline-tools.zip \
-    && mv /opt/android-sdk/cmdline-tools/cmdline-tools /opt/android-sdk/cmdline-tools/latest
+RUN set -eux; \
+    TARGETS=" ${BUILD_ARTIFACT_TARGETS} "; \
+    need_target() { case "${TARGETS}" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }; \
+    if need_target "linux/arm64"; then \
+      TOOLCHAIN_URL_BASE="https://github.com/sealdice/tooolchain/releases/download/1/aarch64-linux-musl-cross.tgz"; \
+      try_fetch() { \
+        URL="$1"; \
+        wget -q --timeout=20 --tries=2 "${URL}" -O aarch64-linux-musl-cross.tgz; \
+      }; \
+      build_proxy_url() { \
+        PROXY="$1"; BASE="$2"; \
+        case "${PROXY}" in \
+          *"{url}"*) echo "${PROXY}" | sed "s|{url}|${BASE}|g" ;; \
+          *"%URL%"*) echo "${PROXY}" | sed "s|%URL%|${BASE}|g" ;; \
+          *) echo "${PROXY}${BASE}" ;; \
+        esac; \
+      }; \
+      FOUND=0; \
+      if [ -n "${GITHUB_PROXY}" ]; then \
+        URL="$(build_proxy_url "${GITHUB_PROXY}" "${TOOLCHAIN_URL_BASE}")"; \
+        if try_fetch "${URL}"; then FOUND=1; fi; \
+      fi; \
+      if [ "${FOUND}" -eq 0 ]; then \
+        for P in ${GITHUB_PROXY_FALLBACKS}; do \
+          URL="$(build_proxy_url "${P}" "${TOOLCHAIN_URL_BASE}")"; \
+          if try_fetch "${URL}"; then FOUND=1; break; fi; \
+        done; \
+      fi; \
+      if [ "${FOUND}" -eq 0 ]; then \
+        try_fetch "${TOOLCHAIN_URL_BASE}"; \
+      fi; \
+      tar zxf aarch64-linux-musl-cross.tgz; \
+      rm -f aarch64-linux-musl-cross.tgz; \
+    fi
+RUN set -eux; \
+    TARGETS=" ${BUILD_ARTIFACT_TARGETS} "; \
+    need_target() { case "${TARGETS}" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }; \
+    if need_target "android/arm64" && [ "${BUILD_ANDROID_CORE_CGO}" = "1" ]; then \
+      wget -q "https://dl.google.com/android/repository/android-ndk-${ANDROID_NDK_VERSION}-linux.zip"; \
+      unzip -q "android-ndk-${ANDROID_NDK_VERSION}-linux.zip"; \
+      rm -f "android-ndk-${ANDROID_NDK_VERSION}-linux.zip"; \
+    fi
+RUN set -eux; \
+    if [ "${BUILD_ANDROID_APK_ENABLE}" = "1" ]; then \
+      mkdir -p /opt/android-sdk/cmdline-tools; \
+      wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O /tmp/cmdline-tools.zip; \
+      unzip -q /tmp/cmdline-tools.zip -d /opt/android-sdk/cmdline-tools; \
+      rm -f /tmp/cmdline-tools.zip; \
+      mv /opt/android-sdk/cmdline-tools/cmdline-tools /opt/android-sdk/cmdline-tools/latest; \
+    fi
 ENV ANDROID_SDK_ROOT=/opt/android-sdk
 ENV PATH=/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-RUN yes | sdkmanager --licenses >/dev/null \
-    && sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+RUN if [ "${BUILD_ANDROID_APK_ENABLE}" = "1" ]; then \
+      yes | sdkmanager --licenses >/dev/null \
+      && sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"; \
+    fi
 
 WORKDIR /src/sealdice-core
 COPY sealdice-core/go.mod sealdice-core/go.sum ./
 RUN go mod download
 COPY sealdice-core ./
-COPY sealdice-build/.github/patch_go/unified-1-25-patch.diff /src/sealdice-build/.github/patch_go/unified-1-25-patch.diff
 COPY docker/build-artifacts.sh /usr/local/bin/build-artifacts.sh
 RUN chmod +x /usr/local/bin/build-artifacts.sh
 
-ARG GOPROXY=https://goproxy.cn,direct
-ENV GOPROXY=${GOPROXY}
 ENV ARTIFACT_TARGETS="linux/amd64 linux/arm64 windows/amd64 osx/amd64 osx/arm64 android/arm64"
 ENV ARTIFACT_VERSION=local
 ENV ARTIFACT_VERSION_PRERELEASE=-docker-artifact
